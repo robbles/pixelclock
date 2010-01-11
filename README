@@ -1,0 +1,28 @@
+== Pixel Clock ==
+
+This project consists of four super-bright RGB LED matrices, each controlled by
+a Rainbowduino board, and an Arduino Diecimila as the main controller board. An
+XBee2.5 or similar serial interface can be wired to the hardware serial pins of
+the Arduino to allow the time to be set remotely.
+
+The Rainbowduinos must be arranged in series, with each one having an I2C
+address of 1-4, depending on the position (i.e. the leftmost one is 1, and the
+rightmost is 4). The Vin, GND, SDA and SCL pins on the Arduino should be connected to
+the rightmost board, and the Arduino should be powered with an appropriate DC
+adaptor (9V seems to work pretty well).
+
+NOTE: this is really bright. Might want to put a piece of paper on top to avoid
+scorching your retinas...
+
+
+== The Code ==
+
+The "controller" folder contains the firmware for the main Arduino controller.
+The code currently assumes that the serial control communication is at 9600 baud.
+
+The "rainbowduino" folder contains the firmware for the Rainbowduinos. Each
+board must have a specific 7-bit I2C address, as explained above. You can
+change I2C_ADDRESS to set the address. The board will also show
+I2C_ADDRESS_CHAR in white when powered on to help orient the matrices.
+
+
