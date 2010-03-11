@@ -2,4 +2,5 @@
 .a
 .eep
 .elf
-
+controller/applet/
+rainbowduino/applet/
