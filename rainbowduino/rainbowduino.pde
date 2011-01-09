@@ -25,19 +25,16 @@ void setup(void) {
 
   clearBuffer(paperR, paperG, paperB);
 
-  //drawSquare( 2, 2, 6, 6);
+  // I2C address in white
+  printChar(0, 0, 0xF, 0xF, 0xF, I2C_DEVICE_ADDRESS_CHAR);
 
-  //drawLine(  2, 2, 6, 6);
-  //drawLine(  2, 6, 6, 2);
+  // Line on left in green
+  drawLine(7, 0, 7, 7, 0x0, 0xF, 0x0);
 
-  //drawPixel( 8, 0);
-
-  inkR = inkG = inkB = 0xF;
-  //printChar(0, 0, inkR, inkG, inkB, 'F');
-  drawPixel(0, 0, inkR, inkR, inkR);
+  // Line on right in blue
+  drawLine(0, 0, 0, 7, 0x0, 0x0, 0xF);
 
   swapBuffers();
-  
 }
 
 void loop(void) {
@@ -452,7 +449,7 @@ void _init(void) {  // define the pin mode
 
   level = 0;
   line = 0;
-  
+
   _initWire();      // init I2C communication protocol
   _initGfx();       // init Graphic
   
@@ -484,4 +481,5 @@ ISR(TIMER2_OVF_vect) {  // Timer2 Service
     }
   }
 }
+
 

@@ -2,7 +2,7 @@
 #define Rainbow_h
 
 #define I2C_DEVICE_ADDRESS 0x01
-#define I2C_DEVICE_ADDRESS_CHAR (I2C_DEVICE_ADDRESS + 48)
+#define I2C_DEVICE_ADDRESS_CHAR (char)(I2C_DEVICE_ADDRESS + 48)
 
 #define FRONT_BUFFER       bufFront
 #define BACK_BUFFER        bufBack
