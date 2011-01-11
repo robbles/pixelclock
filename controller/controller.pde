@@ -1,55 +1,79 @@
-#include <Wire.h>
+#include <stdio.h>
+#include <avr/pgmspace.h>
 #include <NewSoftSerial.h>
-
+#include <Wire.h>
+#include "WireCommands.h"
 #include "controller.h"
 
+NewSoftSerial SoftSerial(0,1);
+void sendCMD(byte address, byte CMD, ... );
 
 void setup()
 {
-
     Wire.begin(); // join i2c bus (address optional for master) 
+    RainbowCMD[0] = 'r'; // initialize command buffer
 
 	// Setup 16-bit timer 1 to control time
     TIMSK1 = 0x00;
-	TCCR1A = 0x00; // CTC with TOP at ICR1
-	TCCR1B = _BV(WGM13) | _BV(WGM12) | _BV(CS12) | _BV(CS10); // clk / 1024, 16-bit Fast PWM
-	ICR1 = 15625; // Overflows every 1.0s
+    // CTC with TOP at ICR1
+	TCCR1A = 0x00; 
+    // clk / 1024, 16-bit Fast PWM
+	TCCR1B = _BV(WGM13) | _BV(WGM12) | _BV(CS12) | _BV(CS10); 
+
+    // Overflows every 1.0s, multiplied by SPEED factor
+	ICR1 = 15625 / SPEED;
+
 	TIMSK1 = _BV(ICIE1); // Trigger interrupt when timer reaches TOP	
 
+#ifdef HOLIDAY
+    red = 0xF;
+    green = blue = 0x0;
+#else
     red = green = blue = 0x07;
+#endif
 
-    hours = 12;
-    minutes = 0;
+    hours = 4;
+    minutes = 20;
     seconds = 0;
+    last_tick = 0;
     PM = true;
-    time_changed = true;
-
-    colorMatrix(1, 0, 0, 0);    
-    colorMatrix(2, 0, 0, 0);    
-    colorMatrix(3, 0, 0, 0);    
-    colorMatrix(4, 0, 0, 0);    
+    display_changed = true;
 
     // Start serial connection to XBee
-    xbee.begin(9600);
+    SoftSerial.begin(9600);
     pinMode(2, 0);
 
+    pinMode(REDLED, OUTPUT);
+    pinMode(GREENLED, OUTPUT);
+    pinMode(BLUELED, OUTPUT);
+
+    do_the_dance(1, 500);
+
+    // Setup each matrix
+    for(int addr=1; addr<=4; addr++) {
+#ifdef HOLIDAY
+        sendCMD(addr, CMD_SET_PAPER, 0, 1, 0);
+#else
+        sendCMD(addr, CMD_SET_PAPER, 0, 0, 1);
+#endif
+        sendCMD(addr, CMD_SET_INK, red, green, blue);
+        sendCMD(addr, CMD_CLEAR_PAPER);
+        sendCMD(addr, CMD_SWAP_BUF);
+    }
 }
 
 void loop()
 { 
-
     // Check for commands from driver	
-    // { 0:'[', 1:'hours', 2:'minutes', 3:'seconds', 4:'PM', 5:'Command', 5:']' }
-    while(xbee.available()) {
-
-        uint8_t c = xbee.read();
-
+    /* format is '[' + <hours> + <minutes> + <seconds> + <AM/PM> + <command> + ']'
+       or '[' + <red> + <green> + <blue> + <null> + <command> + ']'
+       or '[' + <char1> + <char2> + <char3> + <char4> + <command> + ']' */
+    while(SoftSerial.available()) {
+        uint8_t c = SoftSerial.read();
         switch(c) {
-
             case '[': // Opening byte
                 packet_index = 0;
                 break;
-
             case ']': // Closing byte
                 if(packet_index == 5) { // valid length
                     LED_ON();
@@ -57,7 +81,6 @@ void loop()
                     handlePacket(packet);
                 }
                 break;
-
             default:
                 buffer[packet_index++] = c;
                 if(packet_index > 5) {
@@ -68,7 +91,79 @@ void loop()
 
     // Update the dot matrix display, if enabled
     if(enabled) {
-        displayTime(hours, minutes);
+#ifdef HOLIDAY
+        long ticks = millis() / 200;
+        if(ticks != last_tick) {
+            last_tick = ticks;
+            display_changed = true;
+        }
+#endif
+        if(display_changed) {
+            display_changed = false;
+            displayTime4(hours, minutes);
+        }
+    }
+}
+
+/*
+ * Display the current time as HH:MM on LED matrices
+ */
+void displayTime4(unsigned char hours, unsigned char minutes) {
+#ifndef HOLIDAY
+    // Change color every minute
+    color_shift();
+#else
+    for(int addr=1; addr<=4; addr++) {
+        sendCMD(addr, CMD_SET_INK, red, green, blue);
+    }
+#endif
+
+    // Clear matrices
+    for(int addr=1; addr<=4; addr++) {
+        sendCMD(addr, CMD_CLEAR_PAPER);
+    }
+
+    char digit1, digit2, digit3, digit4;
+    itoa(hours/10, &digit1, 10);
+    itoa(hours % 10, &digit2, 10);
+    itoa(minutes/10, &digit3, 10);
+    itoa(minutes % 10, &digit4, 10);
+
+    // Hours tens
+    if(digit1 != '0') {
+        sendCMD(1, CMD_PRINT_CHAR, toByte(0), toByte(-1), digit1);
+    }
+
+    // Hours ones
+    sendCMD(2, CMD_PRINT_CHAR, toByte(2), toByte(-1), digit2);
+
+    // Minutes tens
+    sendCMD(3, CMD_PRINT_CHAR, toByte(-1), toByte(-1), digit3);
+
+    // Minutes ones
+    sendCMD(4, CMD_PRINT_CHAR, toByte(0), toByte(-1), digit4);
+
+    // Show divider between hours/minutes
+    sendCMD(2, CMD_DRAW_LINE, toByte(0), toByte(6), toByte(0), toByte(5));
+    sendCMD(2, CMD_DRAW_LINE, toByte(0), toByte(3), toByte(0), toByte(2));
+
+    sendCMD(3, CMD_DRAW_LINE, toByte(7), toByte(6), toByte(7), toByte(5));
+    sendCMD(3, CMD_DRAW_LINE, toByte(7), toByte(3), toByte(7), toByte(2));
+
+#ifdef HOLIDAY
+    for(int addr=1; addr<=4; addr++) {
+        sendCMD(addr, CMD_SET_INK, 0xF, 0xF, 0xF);
+        for(int i=0; i<4; i++) {
+            int x = random(0,8);
+            int y = random(0,8);
+            sendCMD(addr, CMD_DRAW_PIXEL, toByte(x), toByte(y));
+        }
+    }
+#endif
+
+    // Update display
+    for(int addr=1; addr<=4; addr++) {
+        sendCMD(addr, CMD_SWAP_BUF);
     }
 }
 
@@ -79,17 +174,17 @@ void handlePacket(CommandPacket *packet) {
     switch(packet->command) {
         case COMMAND_ON: /* Turns the display on */
             enabled = true;
-            time_changed = true;
+            display_changed = true;
             break;
 
         case COMMAND_OFF: /* Turns the display off */
             enabled = false;
 
             // Clear all matrices
-            colorMatrix(1, 0, 0, 0);
-            colorMatrix(2, 0, 0, 0);
-            colorMatrix(3, 0, 0, 0);
-            colorMatrix(4, 0, 0, 0);
+            for(int addr=1; addr<=4; addr++) {
+                sendCMD(addr, CMD_CLEAR_BUF, 0, 0, 0);
+                sendCMD(addr, CMD_SWAP_BUF);
+            }
             break;
 
         case COMMAND_TIME: /* Sets the time */
@@ -100,18 +195,25 @@ void handlePacket(CommandPacket *packet) {
             seconds = (packet->data3 != 0xFF)? packet->data3 : seconds;
             PM = (packet->data4 != 0xFF)? packet->data4 : PM;
 
-            time_changed = true;
+            display_changed = true;
             break;
 
         case COMMAND_COLOR: /* Sets the display color */
             red = packet->data1 >> 4;
             green = packet->data2 >> 4;
             blue = packet->data3 >> 4;
-            time_changed = true;
+            display_changed = true;
             break;
 
         case COMMAND_ASCII: /* Sets display text */
-            displayASCII((uint8_t *)packet);
+            sendCMD(0x01, CMD_PRINT_CHAR, toByte(0), toByte(0), packet->data1);
+            sendCMD(0x02, CMD_PRINT_CHAR, toByte(0), toByte(0), packet->data2);
+            sendCMD(0x03, CMD_PRINT_CHAR, toByte(0), toByte(0), packet->data3);
+            sendCMD(0x04, CMD_PRINT_CHAR, toByte(0), toByte(0), packet->data4);
+            sendCMD(0x01, CMD_SWAP_BUF);
+            sendCMD(0x02, CMD_SWAP_BUF);
+            sendCMD(0x03, CMD_SWAP_BUF);
+            sendCMD(0x04, CMD_SWAP_BUF);
             break;
     }
 }
@@ -124,7 +226,7 @@ SIGNAL(TIMER1_CAPT_vect) {
     seconds = (seconds + 1) % 60;
     if(!seconds) {
         minutes = (minutes + 1) % 60;
-        time_changed = true;
+        display_changed = true;
         if(!minutes) {
             hours = (hours != 12)? (hours + 1) : 1;
             if(hours == 12) {
@@ -134,172 +236,140 @@ SIGNAL(TIMER1_CAPT_vect) {
     }
 }
 
-/*
- * Display the current time as HH:MM on LED matrices
- */
-void displayTime(unsigned char hours, unsigned char minutes) {
-    // NOTE: the slower changing digits must be overlaid
-    // over the faster ones (e.g. minutes first, then hours)
 
-    // Show the minutes
-    if(time_changed) {
+void sendCMD(byte address, byte CMD, ... ) {
+  int i;
+  unsigned char v;
+  byte t;
+  va_list args;                     // Create a variable argument list
+  va_start(args, CMD);              // Initialize the list using the pointer of the variable next to CMD;
+  
+  RainbowCMD[1] = CMD;              // Stores the command name
+  t = pgm_read_byte(&(CMD_totalArgs[CMD]))+2;  // Retrieve the number of arguments for the command
+  for (i=2; i < t; i++) {
+    v = va_arg(args, int);          // Retrieve the argument from the va_list    
+    RainbowCMD[i] = v;              // Store the argument
+  }
+  
+  sendWireCommand(address, t);      // Transmit the command via I2C
+}
 
-        time_changed = false;
+unsigned char toByte(int i) {
+  return map(i, -128, 127, 0, 255);
+}
 
-        char digit1, digit2, digit3, digit4;
-        itoa(hours/10, &digit1, 10);
-        itoa(hours % 10, &digit2, 10);
-        itoa(minutes/10, &digit3, 10);
-        itoa(minutes % 10, &digit4, 10);
+// ### The following lines are adapted from the original code ###
 
+void sendWireCommand(int Add, byte len) {
+  unsigned char OK=0;
+  unsigned char i,temp;
+  
+  while(!OK)
+  {                          
+    switch (State)
+    { 	
 
-        setMatrixChar(2, digit3, red, green, blue, 5);
-        setMatrixChar(3, digit3, red, green, blue, 11);
+    case 0:                          
+      Wire.beginTransmission(Add);
+      for (i=0; i<len ;i++) Wire.send(RainbowCMD[i]);
+      Wire.endTransmission();    
+      delay(delay_time);   
+      State=1;                      
+      break;
 
-        overlayMatrixChar(3, digit4, red, green, blue, 3);
-        setMatrixChar(4, digit4, red, green, blue, 13);
+    case 1:
+      Wire.requestFrom(Add,1);   
+      if (Wire.available()>0) 
+        temp=Wire.receive();    
+      else {
+        temp=0xFF;
+        timeout++;
+      }
 
-        // Show divider between hours/minutes
-        overlayMatrixChar(2, ':', red, green, blue, 1);
+      if ((temp==1)||(temp==2)) State=2;
+      else if (temp==0) State=0;
 
-        // Show hours, hiding leading zero
-        setMatrixChar(1, digit2, red, green, blue, 4);
-        overlayMatrixChar(2, digit2, red, green, blue, 12);
-        if(digit1 != '0') {
-            overlayMatrixChar(1, digit1, red, green, blue, 10);
-        }
+      if (timeout>5000) {
+        timeout=0;
+        State=0;
+      }
 
-        // Show AM/PM
-        if(PM) {
-            overlayMatrixChar(4, 'P', red, green, blue, 1);
-        } else {
-            overlayMatrixChar(4, 'A', red, green, blue, 1);
-        }
+      delay(delay_time);
+      break;
+
+    case 2:
+      OK=1;
+      State=0;
+      break;
+
+    default:
+      State=0;
+      break;
     }
-
+  }
 }
 
 /*
- * Display a string of ASCII characters on the LEDs
+ * Sets the color based on the current time
  */
-void displayASCII(unsigned char *str) {
-    setMatrixChar(1, str[0], red, green, blue, 0);
-    setMatrixChar(2, str[1], red, green, blue, 0);
-    setMatrixChar(3, str[2], red, green, blue, 0);
-    setMatrixChar(4, str[3], red, green, blue, 0);
-}
+void color_shift() {
+    // Generate RGB color for saturated hue
+    // TODO: make hours hue, minutes saturation
+    HSV_color hsv = { (hours + (minutes / 60.0)) / 2.0, 1.0, 1.0 };
+    RGB_color rgb = HSV_to_RGB(hsv);
+    
+    red = rgb.red * 15;
+    green = rgb.green * 15;
+    blue = rgb.blue * 15;
 
-/*
- * Sends the current Rainbowduino API packet via TWI to I2C address addr
- */
-void sendCommand(unsigned char addr) {
-
-    Wire.beginTransmission(addr);
-    for (int i=0;i<5;i++) Wire.send(RainbowCMD[i]);
-    Wire.endTransmission();    
-    delay(5);   
-
-}
-
-/* 
- * Colors the matrix with I2C address addr a solid color
- */
-void colorMatrix(unsigned char addr, unsigned char red, unsigned char green, unsigned char blue) {
-    RainbowCMD[0]='R';
-    RainbowCMD[1]=0x03;
-    RainbowCMD[2]=red;
-    RainbowCMD[3]=((green<<4)|(blue));
-
-    sendCommand(addr);
-}
-
-/*
- * Displays an ASCII character on the matrix with I2C address addr in a solid RGB color.
- * Clears the current pattern on the matrix in the process.
- */
-void setMatrixChar(unsigned char addr, unsigned char code, unsigned char red, unsigned char green ,unsigned char blue, unsigned char shift)
-{
-    if(((code > 64) && (code < 91)) || 
-       ((code > 96) && (code < 123)) || 
-       ((code >= '0') && (code <= ':'))) {
-        // Draw known ASCII symbol
-        RainbowCMD[0]='R';
-        RainbowCMD[1]=0x02;
-        RainbowCMD[2]=((shift<<4)|(red));
-        RainbowCMD[3]=((green<<4)|(blue));
-        RainbowCMD[4]=code;
-
-        sendCommand(addr);
-    } else {
-        // Unknown symbol, blank matrix
-       colorMatrix(addr, 0, 0, 0);
+    // Set new paper color
+    for(int addr=1; addr<=4; addr++) {
+        sendCMD(addr, CMD_SET_INK, red, green, blue);
     }
 }
 
-/*
- * Overlays an ASCII character on the matrix with I2C address addr in a solid RGB color.
- * Only changes the pixels that are set in the pixel map for the new character.
- * i.e. Adds the new character pixels to the current pattern
- */
-void overlayMatrixChar(unsigned char addr, unsigned char code, unsigned char red, unsigned char green ,unsigned char blue, unsigned char shift)
-{
-    if(code == ' ' || code == 0) {
-       return;
+#define RETURN_RGB(r, g, b) {RGB.red = r; RGB.green = g; RGB.blue = b; return RGB;}
+
+RGB_color HSV_to_RGB( HSV_color HSV ) {
+
+    // H is given on [0, 6] or UNDEFINED. S and V are given on [0, 1].
+    // RGB are each returned on [0, 1].
+    float h = HSV.hue, s = HSV.saturation, v = HSV.value, m, n, f;
+    int i;
+    RGB_color RGB;
+    i = floor(h);
+    f = h - i;
+    if ( !(i&1) ) f = 1 - f; // if i is even
+    m = v * (1 - s);
+    n = v * (1 - s * f);
+    switch (i) {
+        case 6:
+        case 0: RETURN_RGB(v, n, m);
+        case 1: RETURN_RGB(n, v, m);
+        case 2: RETURN_RGB(m, v, n)
+        case 3: RETURN_RGB(m, n, v);
+        case 4: RETURN_RGB(n, m, v);
+        case 5: RETURN_RGB(v, m, n);
     }
-    RainbowCMD[0]='R';
-    RainbowCMD[1]=0x04;
-    RainbowCMD[2]=((shift<<4)|(red));
-    RainbowCMD[3]=((green<<4)|(blue));
-    RainbowCMD[4]=code;
-
-    sendCommand(addr);
-}
-
-/*
- * Replaces the current pattern on the matrix with I2C address addr with a pattern stored in the flash
- * memory of the Rainbowduino. Displays the pattern associated with key.
- */
-void setMatrixImage(unsigned char addr, unsigned char key, unsigned char shift)
-{
-    RainbowCMD[0]='R';
-    RainbowCMD[1]=0x01;
-    RainbowCMD[2]=(shift<<4);
-    RainbowCMD[4]=key;
-
-    sendCommand(addr);
 }
 
 
+
 /*
- * Sends an "Association Indication" command to the XBee
- * module and reads back a byte indicating the network
- * status of the module
+ * Self-explanatory
  */
-int get_xbee_status() {
-    unsigned char status = 0;
-
-    // Enter command mode
-    delay(1000);
-    xbee.print("+++");
-    delay(1000);
-
-    // Send AI command
-    xbee.print("ATAI\r");
-
-    // Wait for 0.5s and check for data
-    delay(500);
-    if(xbee.available()) {
-        // A value of 0x00 means the module associated successfully
-        if(xbee.read() == 0x00) {
-            status = 1;
-        }
+void do_the_dance(int numTimes, int interDelay) {
+    for(int i=0; i<numTimes; i++) {
+        digitalWrite(REDLED, HIGH);
+        delay(interDelay);
+        digitalWrite(REDLED, LOW);
+        digitalWrite(GREENLED, HIGH);
+        delay(interDelay);
+        digitalWrite(GREENLED, LOW);
+        digitalWrite(BLUELED, HIGH);
+        delay(interDelay);
+        digitalWrite(BLUELED, LOW);
+        delay(interDelay * 2);
     }
-
-    // Exit command mode
-    xbee.print("ATCN\r");
-
-    return status;
 }
-
-
 
