@@ -1,11 +1,11 @@
 #include <stdio.h>
 #include <avr/pgmspace.h>
-#include <NewSoftSerial.h>
+#include <SoftwareSerial.h>
 #include <Wire.h>
 #include "WireCommands.h"
 #include "controller.h"
 
-NewSoftSerial SoftSerial(0,1);
+SoftwareSerial SoftSerial(0,1);
 void sendCMD(byte address, byte CMD, ... );
 
 void setup()
@@ -25,15 +25,10 @@ void setup()
 
 	TIMSK1 = _BV(ICIE1); // Trigger interrupt when timer reaches TOP	
 
-#ifdef HOLIDAY
-    red = 0xF;
-    green = blue = 0x0;
-#else
     red = green = blue = 0x07;
-#endif
 
-    hours = 4;
-    minutes = 20;
+    hours = 12;
+    minutes = 30;
     seconds = 0;
     last_tick = 0;
     PM = true;
@@ -47,15 +42,12 @@ void setup()
     pinMode(GREENLED, OUTPUT);
     pinMode(BLUELED, OUTPUT);
 
-    do_the_dance(1, 500);
+    delay(3000);
+    do_the_dance(1, 100);
 
     // Setup each matrix
     for(int addr=1; addr<=4; addr++) {
-#ifdef HOLIDAY
-        sendCMD(addr, CMD_SET_PAPER, 0, 1, 0);
-#else
         sendCMD(addr, CMD_SET_PAPER, 0, 0, 1);
-#endif
         sendCMD(addr, CMD_SET_INK, red, green, blue);
         sendCMD(addr, CMD_CLEAR_PAPER);
         sendCMD(addr, CMD_SWAP_BUF);
@@ -91,13 +83,6 @@ void loop()
 
     // Update the dot matrix display, if enabled
     if(enabled) {
-#ifdef HOLIDAY
-        long ticks = millis() / 200;
-        if(ticks != last_tick) {
-            last_tick = ticks;
-            display_changed = true;
-        }
-#endif
         if(display_changed) {
             display_changed = false;
             displayTime4(hours, minutes);
@@ -109,14 +94,9 @@ void loop()
  * Display the current time as HH:MM on LED matrices
  */
 void displayTime4(unsigned char hours, unsigned char minutes) {
-#ifndef HOLIDAY
-    // Change color every minute
-    color_shift();
-#else
     for(int addr=1; addr<=4; addr++) {
         sendCMD(addr, CMD_SET_INK, red, green, blue);
     }
-#endif
 
     // Clear matrices
     for(int addr=1; addr<=4; addr++) {
@@ -129,6 +109,14 @@ void displayTime4(unsigned char hours, unsigned char minutes) {
     itoa(minutes/10, &digit3, 10);
     itoa(minutes % 10, &digit4, 10);
 
+    int hour = hours - 1;
+    float day_ratio = hour / 11.0;
+    float hour_ratio = minutes / 60.0;
+    float split_ratio = (hour + hour_ratio) / 12.0;
+
+    color_shift(day_ratio, 1);
+    color_shift(day_ratio, 2);
+
     // Hours tens
     if(digit1 != '0') {
         sendCMD(1, CMD_PRINT_CHAR, toByte(0), toByte(-1), digit1);
@@ -137,11 +125,17 @@ void displayTime4(unsigned char hours, unsigned char minutes) {
     // Hours ones
     sendCMD(2, CMD_PRINT_CHAR, toByte(2), toByte(-1), digit2);
 
+    color_shift(hour_ratio, 3);
+    color_shift(hour_ratio, 4);
+
     // Minutes tens
     sendCMD(3, CMD_PRINT_CHAR, toByte(-1), toByte(-1), digit3);
 
     // Minutes ones
     sendCMD(4, CMD_PRINT_CHAR, toByte(0), toByte(-1), digit4);
+
+    color_shift(split_ratio, 2);
+    color_shift(split_ratio, 3);
 
     // Show divider between hours/minutes
     sendCMD(2, CMD_DRAW_LINE, toByte(0), toByte(6), toByte(0), toByte(5));
@@ -149,17 +143,6 @@ void displayTime4(unsigned char hours, unsigned char minutes) {
 
     sendCMD(3, CMD_DRAW_LINE, toByte(7), toByte(6), toByte(7), toByte(5));
     sendCMD(3, CMD_DRAW_LINE, toByte(7), toByte(3), toByte(7), toByte(2));
-
-#ifdef HOLIDAY
-    for(int addr=1; addr<=4; addr++) {
-        sendCMD(addr, CMD_SET_INK, 0xF, 0xF, 0xF);
-        for(int i=0; i<4; i++) {
-            int x = random(0,8);
-            int y = random(0,8);
-            sendCMD(addr, CMD_DRAW_PIXEL, toByte(x), toByte(y));
-        }
-    }
-#endif
 
     // Update display
     for(int addr=1; addr<=4; addr++) {
@@ -202,10 +185,24 @@ void handlePacket(CommandPacket *packet) {
             red = packet->data1 >> 4;
             green = packet->data2 >> 4;
             blue = packet->data3 >> 4;
+            clear_color(red, green, blue);
+            delay(500);
+            clear_color(0, 0, 0x1);
             display_changed = true;
             break;
 
+        case COMMAND_STROBE: /* Sets the display color */
+            red = packet->data1 >> 4;
+            green = packet->data2 >> 4;
+            blue = packet->data3 >> 4;
+            clear_color(red, green, blue);
+            break;
+
         case COMMAND_ASCII: /* Sets display text */
+            sendCMD(0x01, CMD_CLEAR_PAPER);
+            sendCMD(0x02, CMD_CLEAR_PAPER);
+            sendCMD(0x03, CMD_CLEAR_PAPER);
+            sendCMD(0x04, CMD_CLEAR_PAPER);
             sendCMD(0x01, CMD_PRINT_CHAR, toByte(0), toByte(0), packet->data1);
             sendCMD(0x02, CMD_PRINT_CHAR, toByte(0), toByte(0), packet->data2);
             sendCMD(0x03, CMD_PRINT_CHAR, toByte(0), toByte(0), packet->data3);
@@ -224,9 +221,9 @@ void handlePacket(CommandPacket *packet) {
  */
 SIGNAL(TIMER1_CAPT_vect) {
     seconds = (seconds + 1) % 60;
+    display_changed = true;
     if(!seconds) {
         minutes = (minutes + 1) % 60;
-        display_changed = true;
         if(!minutes) {
             hours = (hours != 12)? (hours + 1) : 1;
             if(hours == 12) {
@@ -263,6 +260,7 @@ unsigned char toByte(int i) {
 void sendWireCommand(int Add, byte len) {
   unsigned char OK=0;
   unsigned char i,temp;
+  int tries = 0;
   
   while(!OK)
   {                          
@@ -271,7 +269,7 @@ void sendWireCommand(int Add, byte len) {
 
     case 0:                          
       Wire.beginTransmission(Add);
-      for (i=0; i<len ;i++) Wire.send(RainbowCMD[i]);
+      for (i=0; i<len ;i++) Wire.write(RainbowCMD[i]);
       Wire.endTransmission();    
       delay(delay_time);   
       State=1;                      
@@ -280,7 +278,7 @@ void sendWireCommand(int Add, byte len) {
     case 1:
       Wire.requestFrom(Add,1);   
       if (Wire.available()>0) 
-        temp=Wire.receive();    
+        temp=Wire.read();    
       else {
         temp=0xFF;
         timeout++;
@@ -290,6 +288,10 @@ void sendWireCommand(int Add, byte len) {
       else if (temp==0) State=0;
 
       if (timeout>5000) {
+        if(tries > 3) {
+            return;
+        }
+        tries++;
         timeout=0;
         State=0;
       }
@@ -312,10 +314,9 @@ void sendWireCommand(int Add, byte len) {
 /*
  * Sets the color based on the current time
  */
-void color_shift() {
-    // Generate RGB color for saturated hue
-    // TODO: make hours hue, minutes saturation
-    HSV_color hsv = { (hours + (minutes / 60.0)) / 2.0, 1.0, 1.0 };
+void color_shift(float ratio, int addr) {
+    /*HSV_color hsv = { (hours + (minutes / 60.0)) / 2.0, 1.0, 1.0 };*/
+    HSV_color hsv = { ratio * 6.0, 1.0, 1.0 };
     RGB_color rgb = HSV_to_RGB(hsv);
     
     red = rgb.red * 15;
@@ -323,12 +324,8 @@ void color_shift() {
     blue = rgb.blue * 15;
 
     // Set new paper color
-    for(int addr=1; addr<=4; addr++) {
-        sendCMD(addr, CMD_SET_INK, red, green, blue);
-    }
+    sendCMD(addr, CMD_SET_INK, red, green, blue);
 }
-
-#define RETURN_RGB(r, g, b) {RGB.red = r; RGB.green = g; RGB.blue = b; return RGB;}
 
 RGB_color HSV_to_RGB( HSV_color HSV ) {
 
@@ -354,6 +351,14 @@ RGB_color HSV_to_RGB( HSV_color HSV ) {
 }
 
 
+void clear_color(int red, int green, int blue) {
+    // Setup each matrix
+    for(int addr=1; addr<=4; addr++) {
+        sendCMD(addr, CMD_SET_PAPER, red, green, blue);
+        sendCMD(addr, CMD_CLEAR_PAPER);
+        sendCMD(addr, CMD_SWAP_BUF);
+    }
+}
 
 /*
  * Self-explanatory
@@ -361,14 +366,21 @@ RGB_color HSV_to_RGB( HSV_color HSV ) {
 void do_the_dance(int numTimes, int interDelay) {
     for(int i=0; i<numTimes; i++) {
         digitalWrite(REDLED, HIGH);
+        clear_color(0xF, 0, 0);
         delay(interDelay);
+
         digitalWrite(REDLED, LOW);
         digitalWrite(GREENLED, HIGH);
+        clear_color(0xF, 0xF, 0);
         delay(interDelay);
+
         digitalWrite(GREENLED, LOW);
         digitalWrite(BLUELED, HIGH);
+        clear_color(0x0, 0xF, 0xF);
         delay(interDelay);
+
         digitalWrite(BLUELED, LOW);
+        clear_color(0, 0, 0xF);
         delay(interDelay * 2);
     }
 }

@@ -1,6 +1,3 @@
-.o
-.a
-.eep
-.elf
 controller/applet/
 rainbowduino/applet/
+build-cli

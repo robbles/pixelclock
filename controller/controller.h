@@ -10,6 +10,7 @@
 #define COMMAND_TIME '%'
 #define COMMAND_COLOR '#'
 #define COMMAND_ASCII '$'
+#define COMMAND_STROBE '!'
 typedef struct {
     uint8_t data1;
     uint8_t data2;
@@ -52,6 +53,17 @@ volatile uint8_t PM;
 volatile uint8_t display_changed;
 
 volatile int last_tick;
+
+void do_the_dance(int numTimes, int interDelay);
+unsigned char toByte(int i);
+void displayTime4(unsigned char hours, unsigned char minutes);
+void handlePacket(CommandPacket *packet);
+void sendCMD(byte address, byte CMD, ... );
+void sendWireCommand(int Add, byte len);
+void color_shift(float ratio, int addr);
+#define RETURN_RGB(r, g, b) {RGB.red = r; RGB.green = g; RGB.blue = b; return RGB;}
+RGB_color HSV_to_RGB( HSV_color HSV );
+void clear_color(int red, int green, int blue);
 
 #define LED_ON() digitalWrite(13, 1)
 #define LED_OFF() digitalWrite(13, 0)
