@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <avr/pgmspace.h>
+#include <avr/wdt.h>
 #include <SoftwareSerial.h>
 #include <Wire.h>
 #include "WireCommands.h"
@@ -10,6 +11,10 @@ void sendCMD(byte address, byte CMD, ... );
 
 void setup()
 {
+    // Setup watchdog timer to prevent freezing while waiting for I2C devices
+    wdt_enable(WDTO_4S);
+    digitalWrite(REDLED, HIGH);
+
     Wire.begin(); // join i2c bus (address optional for master) 
     RainbowCMD[0] = 'r'; // initialize command buffer
 
@@ -56,6 +61,10 @@ void setup()
 
 void loop()
 { 
+    // Reset the watchdog timer, since the sketch hasn't frozen
+    wdt_reset();
+    digitalWrite(REDLED, LOW);
+
     // Check for commands from driver	
     /* format is '[' + <hours> + <minutes> + <seconds> + <AM/PM> + <command> + ']'
        or '[' + <red> + <green> + <blue> + <null> + <command> + ']'
