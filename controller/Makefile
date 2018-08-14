@@ -1,4 +1,4 @@
-ARDUINO_DIR = /Applications/Arduino.app/Contents/Resources/Java
+ARDUINO_DIR = /Applications/Arduino.app/Contents/Java
 
 TARGET       			= clock_controller
 MCU          			= atmega168

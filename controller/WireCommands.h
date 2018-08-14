@@ -19,6 +19,6 @@
 #define CMD_PRINT_CHAR        0x2A
 #define CMD_DRAW_ROW_MASK     0x2B
 
-extern unsigned char CMD_totalArgs[MAX_WIRE_CMD];
+const extern unsigned char CMD_totalArgs[MAX_WIRE_CMD];
 
 #endif
