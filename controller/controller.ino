@@ -47,8 +47,7 @@ void setup()
     pinMode(GREENLED, OUTPUT);
     pinMode(BLUELED, OUTPUT);
 
-    delay(3000);
-    do_the_dance(1, 100);
+    do_the_dance(2, 100);
 
     // Setup each matrix
     for(int addr=1; addr<=4; addr++) {
