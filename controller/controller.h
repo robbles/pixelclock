@@ -57,6 +57,7 @@ volatile int last_tick;
 void do_the_dance(int numTimes, int interDelay);
 unsigned char toByte(int i);
 void displayTime4(unsigned char hours, unsigned char minutes);
+void displayTemperature(unsigned char temp);
 void handlePacket(CommandPacket *packet);
 void sendCMD(byte address, byte CMD, ... );
 void sendWireCommand(int Add, byte len);
