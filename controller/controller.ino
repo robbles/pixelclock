@@ -93,7 +93,7 @@ void loop()
     if(enabled) {
         if(display_changed) {
             display_changed = false;
-            displayTime4(hours, minutes);
+            displayTemperature(13);
         }
     }
 }
@@ -151,6 +151,47 @@ void displayTime4(unsigned char hours, unsigned char minutes) {
 
     sendCMD(3, CMD_DRAW_LINE, toByte(7), toByte(6), toByte(7), toByte(5));
     sendCMD(3, CMD_DRAW_LINE, toByte(7), toByte(3), toByte(7), toByte(2));
+
+    // Update display
+    for(int addr=1; addr<=4; addr++) {
+        sendCMD(addr, CMD_SWAP_BUF);
+    }
+}
+
+void displayTemperature(unsigned char temp) {
+    for(int addr=1; addr<=4; addr++) {
+        sendCMD(addr, CMD_SET_INK, red, green, blue);
+    }
+
+    // Clear matrices
+    for(int addr=1; addr<=4; addr++) {
+        sendCMD(addr, CMD_CLEAR_PAPER);
+    }
+
+    char digits[4];
+    itoa(temp, digits, 10);
+
+    float temp_ratio = constrain(temp, 0, 40) / 40.0;
+
+    color_shift(temp_ratio, 1);
+    color_shift(temp_ratio, 2);
+
+    // Tens
+    if(digits[0] != '0') {
+        sendCMD(1, CMD_PRINT_CHAR, toByte(0), toByte(-1), digits[0]);
+    }
+
+    // Ones
+    sendCMD(2, CMD_PRINT_CHAR, toByte(2), toByte(-1), digits[1]);
+
+    // Draw degrees symbol
+    sendCMD(2, CMD_DRAW_LINE, toByte(1), toByte(6), toByte(1), toByte(4));
+    sendCMD(2, CMD_DRAW_PIXEL, toByte(0), toByte(6));
+    sendCMD(2, CMD_DRAW_PIXEL, toByte(0), toByte(4));
+    sendCMD(3, CMD_DRAW_LINE, toByte(7), toByte(6), toByte(7), toByte(4));
+
+    sendCMD(4, CMD_DRAW_LINE, toByte(0), toByte(0), toByte(7), toByte(7));
+    sendCMD(4, CMD_DRAW_LINE, toByte(0), toByte(7), toByte(7), toByte(0));
 
     // Update display
     for(int addr=1; addr<=4; addr++) {
